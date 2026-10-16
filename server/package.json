@@ -1,0 +1,36 @@
+{
+  "name": "ai-social-scheduler-server",
+  "version": "1.0.0",
+  "description": "Backend API for AI-Powered Social Media Post Scheduler",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "social-media",
+    "scheduler",
+    "ai",
+    "express",
+    "mongodb"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/genai": "^2.30.0",
+    "@zernio/node": "^0.2.1184",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "express-validator": "^7.2.1",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.13.1",
+    "multer": "^1.4.5-lts.1",
+    "openai": "^7.32.0"
+  }
+}
