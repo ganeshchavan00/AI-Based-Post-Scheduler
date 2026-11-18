@@ -25,7 +25,7 @@ export default function Diagnostics() {
       setServerHealth({ ...response.data, latency });
       setLastChecked(new Date().toLocaleTimeString());
     } catch (err) {
-      setError(err.message || 'Cannot connect to backend server at http://localhost:5000/api');
+      setError(err.message || `Cannot connect to backend server at ${api.defaults.baseURL}`);
       setServerHealth(null);
       setLastChecked(new Date().toLocaleTimeString());
     } finally {
@@ -80,7 +80,9 @@ export default function Diagnostics() {
           <div className="mt-4 pt-3 border-t border-slate-100 space-y-1.5 text-xs text-slate-600">
             <div className="flex justify-between">
               <span className="text-slate-400">Origin:</span>
-              <span className="font-mono text-emerald-700 font-medium">http://localhost:5173</span>
+              <span className="font-mono text-emerald-700 font-medium">
+                {typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Design System:</span>
@@ -103,7 +105,9 @@ export default function Diagnostics() {
           <div className="mt-4 pt-3 border-t border-slate-100 space-y-1.5 text-xs text-slate-600">
             <div className="flex justify-between">
               <span className="text-slate-400">Endpoint:</span>
-              <span className="font-mono text-blue-700 font-medium">http://localhost:5000</span>
+              <span className="font-mono text-blue-700 font-medium truncate max-w-[200px]" title={api.defaults.baseURL}>
+                {api.defaults.baseURL}
+              </span>
             </div>
             {serverHealth && (
               <div className="flex justify-between">

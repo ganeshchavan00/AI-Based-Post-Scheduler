@@ -1,5 +1,6 @@
 import SocialAccount from '../models/SocialAccount.js';
 import Post from '../models/Post.js';
+import config from '../config/index.js';
 import {
   checkZernioStatus,
   getZernioApiKey,
@@ -31,7 +32,17 @@ export const getIntegrationStatus = async (req, res, next) => {
  */
 export const getAccounts = async (req, res, next) => {
   try {
-    const accounts = await SocialAccount.find({ userId: req.user._id }).sort({ createdAt: -1 });
+    const { status } = req.query;
+    const query = { userId: req.user._id };
+
+    if (status && status !== 'all') {
+      query.connectionStatus = status;
+    } else if (!status) {
+      // Default to returning active connected accounts
+      query.connectionStatus = 'connected';
+    }
+
+    const accounts = await SocialAccount.find(query).sort({ createdAt: -1 });
 
     return res.status(200).json({
       success: true,
@@ -71,7 +82,7 @@ export const getConnectUrl = async (req, res, next) => {
     const result = await getConnectAuthUrl({
       platform: platform.toLowerCase(),
       user: req.user,
-      redirectUrl: redirectUrl || 'http://localhost:5173/social-accounts',
+      redirectUrl: redirectUrl || `${config.clientUrl}/social-accounts`,
     });
 
     return res.status(200).json({
@@ -207,11 +218,17 @@ export const disconnectAccount = async (req, res, next) => {
       });
     }
 
-    await account.deleteOne();
+    if (req.query.permanent === 'true') {
+      await account.deleteOne();
+    } else {
+      account.connectionStatus = 'disconnected';
+      await account.save();
+    }
 
     return res.status(200).json({
       success: true,
       message: 'Account disconnected successfully.',
+      account,
     });
   } catch (error) {
     next(error);

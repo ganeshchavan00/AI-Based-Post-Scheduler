@@ -16,25 +16,55 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Security Headers with Helmet
-app.use(helmet());
+// Trust reverse proxy (Render, Vercel, Nginx) so rate limiter and IP checks work correctly
+app.set('trust proxy', 1);
 
-// CORS Configuration
-const allowedOrigin = process.env.CLIENT_URL || 'http://localhost:5173';
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (such as mobile apps, curl, or Postman)
-    if (!origin || origin === allowedOrigin || origin.startsWith('http://localhost:')) {
-      return callback(null, true);
-    }
-    return callback(new Error('CORS blocked this origin'));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// Security Headers with Helmet - allow cross-origin resource sharing for static media uploads
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
 
-// Basic Rate Limiting
+// CORS Configuration supporting FRONTEND_URL & CLIENT_URL with normalization
+const configuredOrigins = (process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:5173')
+  .split(',')
+  .map((o) => o.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+const allowedOriginsSet = new Set([
+  ...configuredOrigins,
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+]);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow non-browser requests (such as server-to-server, mobile apps, curl, or Postman)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      const cleanOrigin = origin.replace(/\/+$/, '');
+      if (
+        allowedOriginsSet.has(cleanOrigin) ||
+        cleanOrigin.startsWith('http://localhost:') ||
+        cleanOrigin.startsWith('http://127.0.0.1:') ||
+        (cleanOrigin.endsWith('.vercel.app') && configuredOrigins.some((o) => o.includes('vercel.app')))
+      ) {
+        return callback(null, true);
+      }
+      return callback(new Error(`CORS blocked this origin: ${origin}`));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
+
+// Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 300, // Limit each IP to 300 requests per 15 minutes
@@ -42,8 +72,8 @@ const limiter = rateLimit({
   legacyHeaders: false,
   message: {
     success: false,
-    message: 'Too many requests from this IP, please try again after 15 minutes.'
-  }
+    message: 'Too many requests from this IP, please try again after 15 minutes.',
+  },
 });
 app.use('/api', limiter);
 
@@ -55,7 +85,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const uploadDir = process.env.UPLOAD_DIR || 'uploads';
 app.use('/uploads', express.static(path.join(__dirname, '..', uploadDir)));
 
-// Baseline & Database Health Check Endpoint (Phase 1 & 2 verification)
+// Baseline & Database Health Check Endpoint
 app.get('/api/health', (req, res) => {
   const dbHealth = getDBHealth();
 
@@ -69,7 +99,7 @@ app.get('/api/health', (req, res) => {
     database: dbHealth,
     notes: dbHealth.isConnected
       ? 'All services and database operational'
-      : 'Database is disconnected or connecting. Ensure MongoDB service or Atlas connection string is active.'
+      : 'Database is disconnected or connecting. Ensure MongoDB service or Atlas connection string is active.',
   });
 });
 
@@ -79,30 +109,30 @@ app.get('/api', (req, res) => {
     success: true,
     message: 'Welcome to the AI Social Media Scheduler API',
     version: '1.0.0',
-    docs: '/api/health'
+    docs: '/api/health',
   });
 });
 
-// Authentication Routes (Phase 3)
+// Authentication Routes
 app.use('/api/auth', authRoutes);
 
-// Post Management Routes (Phase 4)
+// Post Management Routes
 app.use('/api/posts', postRoutes);
 
-// Dashboard Metrics Routes (Phase 4)
+// Dashboard Metrics Routes
 app.use('/api/dashboard', dashboardRoutes);
 
-// AI Generation Routes (Phase 5)
+// AI Generation Routes
 app.use('/api/ai', aiRoutes);
 
-// Social Media Integration Routes (Phase 6)
+// Social Media Integration Routes
 app.use('/api/social', socialRoutes);
 
 // 404 Route Handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: `Resource not found: ${req.method} ${req.originalUrl}`
+    message: `Resource not found: ${req.method} ${req.originalUrl}`,
   });
 });
 
@@ -114,7 +144,7 @@ app.use((err, req, res, next) => {
   res.status(statusCode).json({
     success: false,
     message: err.message || 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
   });
 });
 

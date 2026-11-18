@@ -680,7 +680,7 @@ export const publishToSocial = async ({ post, connectedAccounts }) => {
 
       return {
         provider: acc.provider,
-        providerPostId,
+        providerPostId: platformPostId,
         platformPostUrl,
         status: finalPlatformStatus,
         publishedAt: finalPlatformStatus === 'published' ? new Date() : null,

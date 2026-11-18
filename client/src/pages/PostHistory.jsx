@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchPosts, deletePost, clearPostMessages } from '../features/posts/postsSlice';
 import { publishPost } from '../features/social/socialSlice';
+import { getMediaUrl } from '../services/api';
 import { 
   FileText, 
   Clock, 
@@ -286,7 +287,7 @@ export default function PostHistory() {
                   {hasMedia && (
                     <div className="rounded-lg overflow-hidden border border-slate-200 h-32 bg-slate-100">
                       <img
-                        src={`http://localhost:5000${post.mediaUrls[0].url}`}
+                        src={post.mediaUrls[0].publicUrl || getMediaUrl(post.mediaUrls[0].url)}
                         alt="Post media"
                         className="w-full h-full object-cover"
                         onError={(e) => {

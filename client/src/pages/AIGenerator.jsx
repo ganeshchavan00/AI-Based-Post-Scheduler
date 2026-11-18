@@ -38,6 +38,7 @@ const SAMPLE_PROMPTS = [
     platform: 'instagram',
     tone: 'promotional',
     audience: 'Coffee lovers & local community',
+    keywords: ['GrandOpening', 'SpecialDiscount'],
     prompt: 'Write a promotional Instagram caption for my new coffee shop opening. Mention special opening discounts and invite people to visit.',
   },
   {
@@ -45,6 +46,7 @@ const SAMPLE_PROMPTS = [
     platform: 'linkedin',
     tone: 'professional',
     audience: 'Software engineers & founders',
+    keywords: ['ProductLaunch', 'GeminiAI', 'SocialMediaScheduler'],
     prompt: 'Announce our new AI Social Media Post Scheduler platform on LinkedIn. Highlight automated scheduling, Google Gemini caption generation, and multi-platform publishing.',
   },
   {
@@ -52,6 +54,7 @@ const SAMPLE_PROMPTS = [
     platform: 'facebook',
     tone: 'casual',
     audience: 'Local tech community and students',
+    keywords: ['TechMeetup', 'FreePizza', 'CodingSession'],
     prompt: 'Create an inviting Facebook post for our community tech meetup this Saturday. Mention free pizza, networking, and a hands-on coding session.',
   },
   {
@@ -59,6 +62,7 @@ const SAMPLE_PROMPTS = [
     platform: 'twitter',
     tone: 'educational',
     audience: 'Web developers',
+    keywords: ['CleanCode', 'ReactJS', 'NodeJS'],
     prompt: 'Write a punchy X (Twitter) post about writing clean code and scaling modern web apps with React and Node.js.',
   },
 ];
@@ -66,20 +70,20 @@ const SAMPLE_PROMPTS = [
 export default function AIGenerator() {
   const navigate = useNavigate();
 
-  // Generator parameters
+  // Generator parameters - defaults are clean and empty so user prompt is the primary source of truth
   const [prompt, setPrompt] = useState('');
   const [platform, setPlatform] = useState('instagram');
   const [tone, setTone] = useState('promotional');
-  const [audience, setAudience] = useState('Coffee lovers & local community');
+  const [audience, setAudience] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
-  const [keywords, setKeywords] = useState(['GrandOpening', 'SpecialDiscount']);
+  const [keywords, setKeywords] = useState([]);
 
   // Output state
   const [generatedCaption, setGeneratedCaption] = useState('');
   const [generatedHashtags, setGeneratedHashtags] = useState([]);
   const [isMock, setIsMock] = useState(false);
   const [modelNotice, setModelNotice] = useState('');
-  const [activeModel, setActiveModel] = useState('gemini-3.8-flash');
+  const [activeModel, setActiveModel] = useState('gemini-3.5-flash-lite');
   const [aiStatus, setAiStatus] = useState(null);
   
   // Loading & error states
@@ -122,7 +126,8 @@ export default function AIGenerator() {
     setPrompt(sample.prompt);
     setPlatform(sample.platform);
     setTone(sample.tone);
-    setAudience(sample.audience);
+    setAudience(sample.audience || '');
+    setKeywords(sample.keywords || []);
     setError('');
   };
 
@@ -137,6 +142,11 @@ export default function AIGenerator() {
 
     setError('');
     setLoading(true);
+    // Clear stale outputs when a new generation begins
+    setGeneratedCaption('');
+    setGeneratedHashtags([]);
+    setIsMock(false);
+    setModelNotice('');
 
     try {
       // POST to existing backend AI endpoint (/api/ai/generate)
@@ -146,7 +156,7 @@ export default function AIGenerator() {
         platform,
         tone,
         audience: audience.trim(),
-        keywords,
+        keywords: keywords.filter(Boolean),
         type: 'all', // generates complete caption and relevant hashtags
         count: 6,
         useFallback: explicitFallback,
@@ -167,11 +177,9 @@ export default function AIGenerator() {
       console.error('Caption generation request failed:', err);
       const serverMessage = err.response?.data?.message || err.message || 'Live generation failed.';
       setError(serverMessage);
-      // If live generation failed, do NOT present fake mock output as Gemini output
-      if (!explicitFallback) {
-        setGeneratedCaption('');
-        setGeneratedHashtags([]);
-      }
+      // Ensure stale or failed content is not displayed as output
+      setGeneratedCaption('');
+      setGeneratedHashtags([]);
     } finally {
       setLoading(false);
     }
@@ -211,14 +219,18 @@ export default function AIGenerator() {
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
             AI Content Studio
-            {aiStatus?.configured ? (
+            {isMock || activeModel === 'local-heuristic-v1' ? (
+              <span className="text-[11px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+                Template Fallback Mode (local-heuristic-v1)
+              </span>
+            ) : aiStatus?.configured ? (
               <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium flex items-center gap-1">
                 <Sparkles className="w-3 h-3 text-emerald-600" />
                 Live Gemini ({activeModel})
               </span>
             ) : (
               <span className="text-[11px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-medium">
-                Template Fallback Mode
+                Template Fallback Mode (No API Key)
               </span>
             )}
           </h1>
@@ -396,7 +408,7 @@ export default function AIGenerator() {
                 type="text"
                 value={audience}
                 onChange={(e) => setAudience(e.target.value)}
-                placeholder="e.g. Coffee lovers, college students, tech professionals, founders"
+                placeholder="e.g. Software engineers, students, coffee lovers, founders (optional)"
                 className="w-full px-3.5 py-2 rounded-lg bg-white border border-slate-200 text-slate-900 text-xs focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
@@ -483,7 +495,7 @@ export default function AIGenerator() {
                 <h2 className="font-bold text-slate-900 text-xs">Generated Caption Workspace</h2>
               </div>
               {generatedCaption && (
-                isMock ? (
+                isMock || activeModel === 'local-heuristic-v1' ? (
                   <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-medium">
                     Template Fallback Mode
                   </span>
@@ -526,7 +538,15 @@ export default function AIGenerator() {
                 )}
               </div>
 
-              {generatedCaption ? (
+              {loading ? (
+                <div className="p-8 rounded-lg bg-slate-50 border border-slate-200 text-center space-y-3 animate-pulse">
+                  <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mx-auto" />
+                  <p className="text-xs text-slate-700 font-semibold">Generating caption with Google Gemini ({activeModel})...</p>
+                  <p className="text-[11px] text-slate-400 max-w-xs mx-auto leading-relaxed">
+                    Crafting platform-tailored copy and hashtags based directly on your prompt.
+                  </p>
+                </div>
+              ) : generatedCaption ? (
                 <textarea
                   rows={8}
                   value={generatedCaption}

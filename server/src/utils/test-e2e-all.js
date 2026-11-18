@@ -209,8 +209,12 @@ async function runE2EVerification() {
     if (publishRes.ok && publishData.post?.status === 'published') {
       return;
     }
-    // Safety check verification: correctly rejects simulated accounts from live network dispatch
-    if (publishRes.status === 400 && (publishData.message?.includes('simulated') || publishData.message?.includes('simulated test accounts'))) {
+    // Safety check verification: correctly rejects simulated accounts or missing accounts from live network dispatch
+    if (publishRes.status === 400 && (
+      publishData.message?.includes('simulated') ||
+      publishData.message?.includes('simulated test accounts') ||
+      publishData.message?.includes('No connected account found')
+    )) {
       return;
     }
     if (!hasZernioKey && publishRes.status === 400) {

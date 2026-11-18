@@ -10,6 +10,7 @@ import {
   runDueScheduler,
   clearPostMessages,
 } from '../features/posts/postsSlice';
+import { getMediaUrl } from '../services/api';
 import {
   Clock,
   Calendar,
@@ -384,7 +385,7 @@ export default function ScheduledPosts() {
                     <div className="flex items-center gap-2 pt-1">
                       <div className="w-10 h-10 rounded-md overflow-hidden border border-slate-200 bg-slate-100 shrink-0">
                         <img
-                          src={`http://localhost:5000${post.mediaUrls[0].url}`}
+                          src={post.mediaUrls[0].publicUrl || getMediaUrl(post.mediaUrls[0].url)}
                           alt="Thumbnail"
                           className="w-full h-full object-cover"
                           onError={(e) => {

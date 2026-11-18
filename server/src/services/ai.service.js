@@ -14,7 +14,7 @@ export const getGeminiApiKey = () => {
 };
 
 export const getGeminiModel = () => {
-  return process.env.GEMINI_MODEL || config.geminiModel || 'gemini-3.8-flash';
+  return process.env.GEMINI_MODEL || config.geminiModel || 'gemini-3.5-flash-lite';
 };
 
 export const getGeminiClient = () => {
@@ -52,46 +52,94 @@ export const checkAIStatus = () => {
   };
 };
 
+// Priority list of fast, modern Gemini flash models supported by Google GenAI SDK
+const SUPPORTED_GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'];
+
+/**
+ * Resilient Gemini content generation with automatic failover across supported Flash models
+ * when temporary high demand (503 UNAVAILABLE) or model deprecation occurs.
+ */
+const callGeminiWithResilience = async (client, initialModel, options) => {
+  const modelsToTry = [initialModel, ...SUPPORTED_GEMINI_MODELS]
+    .filter((v, idx, arr) => v && arr.indexOf(v) === idx);
+
+  let lastError = null;
+  for (const model of modelsToTry) {
+    try {
+      const response = await client.models.generateContent({
+        ...options,
+        model,
+      });
+      return { response, modelUsed: model };
+    } catch (err) {
+      lastError = err;
+      const status = err.status || err.statusCode;
+      const msg = err.message || '';
+      
+      // Only failover to alternate model on 503 UNAVAILABLE, 404 NOT_FOUND, or high demand
+      const isCapacityError = status === 503 || msg.includes('UNAVAILABLE') || msg.includes('high demand') || msg.includes('temporarily unavailable');
+      const isNotFoundError = status === 404 || msg.includes('not found') || msg.includes('no longer available');
+
+      if (isCapacityError || isNotFoundError) {
+        console.warn(`[Gemini Service] Model ${model} returned ${status || 'capacity error'}. Trying backup model candidate...`);
+        continue;
+      }
+
+      // Authentication, rate limit, quota, and invalid requests must throw immediately
+      throw err;
+    }
+  }
+
+  throw lastError;
+};
+
 /**
  * Intelligent local template generator for when fallback is explicitly requested
  */
 const generateFallbackCaption = ({ prompt, topic, audience, tone, platform, keywords }) => {
-  const text = prompt || topic || 'our latest updates';
-  const keywordStr = keywords && keywords.length > 0 ? ` Featuring: ${keywords.join(', ')}.` : '';
+  const text = (prompt || topic || '').trim() || 'our latest updates';
+  const keywordStr = keywords && keywords.length > 0 ? ` Features: ${keywords.join(', ')}.` : '';
+  const audienceStr = audience && audience.trim() ? ` Targeted for ${audience.trim()}.` : '';
 
   const toneAdjectives = {
-    professional: 'pleased to share our strategic perspective on',
-    casual: 'super excited to talk about',
+    professional: 'pleased to share our perspective on',
+    casual: 'excited to talk about',
     educational: 'breaking down key fundamentals behind',
     promotional: 'thrilled to announce the latest developments in',
-    creative: 'reimagining the possibilities of',
+    creative: 'exploring fresh ideas around',
   };
 
-  const intro = toneAdjectives[tone?.toLowerCase()] || 'sharing insights on';
+  const intro = toneAdjectives[tone?.toLowerCase()] || 'sharing updates on';
   const plat = (platform || '').toLowerCase();
 
   if (plat === 'twitter' || plat === 'x') {
-    return `🚀 We're ${intro} ${text}!${keywordStr} Designed for ${audience || 'creators and innovators'}. What are your thoughts? #Innovation #Tech`;
+    return `🚀 We're ${intro} ${text}!${keywordStr}${audienceStr} What are your thoughts? #Update #Insights`;
   }
 
   if (plat === 'linkedin') {
-    return `💡 Strategic Update\n\nWe are ${intro} ${text}.${keywordStr}\n\nKey Highlights:\n• Tailored specifically for ${audience || 'modern engineering leaders'}\n• Streamlined workflow and data-driven execution\n• Built with scalable architecture in mind\n\nHow is your team approaching this shift? Let's discuss in the comments below!`;
+    return `💡 Update\n\nWe are ${intro} ${text}.${keywordStr}${audienceStr}\n\nKey Highlights:\n• Clear execution aligned with practical goals\n• Focus on quality, simplicity, and relevance\n\nWhat are your thoughts on this? Let's discuss in the comments below!`;
   }
 
   if (plat === 'facebook') {
-    return `🎉 Big Announcement!\n\nWe are ${intro} ${text}.${keywordStr}\n\nWe invite all ${audience || 'community members and friends'} to join us and check it out! Let us know your thoughts in the comments below. 👇`;
+    return `🎉 Update!\n\nWe are ${intro} ${text}.${keywordStr}${audienceStr}\n\nCheck it out and let us know your thoughts in the comments below! 👇`;
   }
 
-  return `✨ Exploring ${text}!\n\nWe are ${intro} this domain.${keywordStr}\n\nTargeted for ${audience || 'visionaries and tech enthusiasts'}. Check out our latest updates and join the conversation!`;
+  return `✨ Exploring ${text}!\n\nWe are ${intro} this domain.${keywordStr}${audienceStr} Check out our latest updates and join the conversation!`;
 };
 
 /**
  * Generate intelligent hashtags fallback
  */
 const generateFallbackHashtags = ({ prompt, topic, platform, count = 5 }) => {
-  const base = (prompt || topic || 'Tech').replace(/[^a-zA-Z0-9 ]/g, '').split(' ').filter(w => w.length > 3);
-  const defaults = [...base.slice(0, 3), 'AI', 'Innovation', 'FutureTech', 'SocialMedia', 'DigitalStrategy'];
-  return defaults.slice(0, Math.min(count, defaults.length));
+  const base = (prompt || topic || '')
+    .replace(/[^a-zA-Z0-9 ]/g, '')
+    .split(' ')
+    .filter(w => w.length > 3)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+
+  const defaults = [...base.slice(0, 3), 'Updates', 'Trending', 'SocialMedia', 'Content', 'Insights'];
+  const unique = Array.from(new Set(defaults));
+  return unique.slice(0, Math.min(count, unique.length));
 };
 
 /**
@@ -158,7 +206,7 @@ const handleGeminiError = (error, actionDesc = 'generation') => {
     throw err;
   }
 
-  // 4. Network or connection errors
+  // 5. Network or connection errors
   if (
     error.code === 'ENOTFOUND' ||
     error.code === 'ECONNREFUSED' ||
@@ -172,7 +220,7 @@ const handleGeminiError = (error, actionDesc = 'generation') => {
     throw err;
   }
 
-  // 5. General error
+  // 6. General error
   const err = new Error(error.message || `Failed to perform AI ${actionDesc} via Google Gemini.`);
   err.statusCode = typeof status === 'number' && status >= 400 && status < 600 ? status : 500;
   err.code = 'GEMINI_GENERATION_ERROR';
@@ -191,7 +239,7 @@ export const generateCaption = async ({ prompt, topic, audience, tone, platform,
   }
 
   const client = getGeminiClient();
-  const model = getGeminiModel();
+  const configuredModel = getGeminiModel();
 
   // If no Gemini key configured or fallback explicitly requested
   if (!client || useFallback) {
@@ -207,7 +255,7 @@ export const generateCaption = async ({ prompt, topic, audience, tone, platform,
       isMock: true,
       notice: !client
         ? 'Generated using local template fallback mode. To enable live Google Gemini generation, configure GEMINI_API_KEY in server/.env.'
-        : 'Generated using local template fallback mode (fallback requested).',
+        : 'Generated using local template fallback mode (explicitly requested).',
       model: 'local-heuristic-v1',
     };
   }
@@ -216,7 +264,7 @@ export const generateCaption = async ({ prompt, topic, audience, tone, platform,
     const platformInstructions = {
       instagram: 'Instagram: Engaging hook in the very first sentence, conversational storytelling, relevant emojis, clean line breaks for readability, and a clear call-to-action inviting users to visit/comment/engage.',
       linkedin: 'LinkedIn: Professional, insightful, high-value tone, clean paragraph spacing or bullet points if appropriate, business/career context, and an engaging professional discussion question.',
-      facebook: 'Facebook: Community-friendly, warm and approachable, clearly highlights key details/discounts/events, and ends with an inviting question or CTA.',
+      facebook: 'Facebook: Community-friendly, warm and approachable, clearly highlights key details/events, and ends with an inviting question or CTA.',
       twitter: 'Twitter / X: Punchy, high-impact, concise (under 260 characters), with 1-2 relevant hashtags.',
       x: 'X / Twitter: Punchy, high-impact, concise (under 260 characters), with 1-2 relevant hashtags.',
     };
@@ -224,22 +272,28 @@ export const generateCaption = async ({ prompt, topic, audience, tone, platform,
     const platformKey = (platform || 'general').toLowerCase();
     const platformRule = platformInstructions[platformKey] || 'General social media: Engaging hook, well-structured body, and relevant call-to-action.';
 
-    const systemInstruction = `You are an expert social media copywriter and growth marketer.
-Write a complete, highly engaging social media caption based directly and faithfully on the user's prompt.
-Strictly adhere to the following:
-1. Directly incorporate and address all specific requests, discounts, events, instructions, and details mentioned in the prompt. Do not produce generic content.
-2. Adhere strictly to the platform guidelines and tone.
-3. Output ONLY the final caption text. Do not include preamble, conversational filler, or enclosing quotation marks.`;
+    const systemInstruction = `You are a professional social media copywriter. Generate content based on the user's exact request. The user's prompt is the primary source of truth. Do not invent a different business, product, event, discount, audience, or offer unless the user requests it. Use the selected platform, tone, target audience, and keywords as additional guidance. Return a complete, relevant caption. If the user's request is ambiguous, produce a reasonable general response without inventing specific facts.
+Strict adherence:
+1. Output ONLY the final caption text. Do not include introductory notes, conversational preambles, "Option 1 / Option 2" listings, quotation marks, or meta-commentary.
+2. Adhere directly to the requested platform style.`;
 
-    const userMessageContent = `User Prompt: "${userPrompt}"
-Target Platform: ${platform || 'General Social Media'}
-Platform Guidelines: ${platformRule}
-${tone ? `Tone: ${tone}` : ''}
-${audience ? `Target Audience: ${audience}` : ''}
-${keywords && keywords.length > 0 ? `Key Points / Keywords to include: ${keywords.join(', ')}` : ''}`;
+    const promptParts = [
+      `User Prompt: "${userPrompt}"`,
+      `Target Platform: ${platform || 'General Social Media'}`,
+      `Platform Style Guidelines: ${platformRule}`,
+    ];
+    if (tone) {
+      promptParts.push(`Requested Tone: ${tone}`);
+    }
+    if (audience && audience.trim()) {
+      promptParts.push(`Target Audience: ${audience.trim()}`);
+    }
+    if (keywords && keywords.length > 0) {
+      promptParts.push(`Key Points / Keywords to include: ${keywords.join(', ')}`);
+    }
+    const userMessageContent = promptParts.join('\n');
 
-    const response = await client.models.generateContent({
-      model,
+    const { response, modelUsed } = await callGeminiWithResilience(client, configuredModel, {
       contents: userMessageContent,
       config: {
         systemInstruction,
@@ -253,7 +307,7 @@ ${keywords && keywords.length > 0 ? `Key Points / Keywords to include: ${keyword
     return {
       caption,
       isMock: false,
-      model,
+      model: modelUsed,
       usage: response.usageMetadata
         ? {
             prompt_tokens: response.usageMetadata.promptTokenCount,
@@ -279,7 +333,7 @@ export const generateHashtags = async ({ prompt, topic, platform, count = 6, use
   }
 
   const client = getGeminiClient();
-  const model = getGeminiModel();
+  const configuredModel = getGeminiModel();
 
   if (!client || useFallback) {
     if (!client && !useFallback) {
@@ -294,20 +348,19 @@ export const generateHashtags = async ({ prompt, topic, platform, count = 6, use
       isMock: true,
       notice: !client
         ? 'Generated using local template fallback mode. Add GEMINI_API_KEY in server/.env for live Gemini responses.'
-        : 'Generated using local template fallback mode (fallback requested).',
+        : 'Generated using local template fallback mode (explicitly requested).',
       model: 'local-heuristic-v1',
     };
   }
 
   try {
-    const systemInstruction = `You are a social media hashtag optimization specialist. Return only a valid JSON array of ${count} trending, highly relevant hashtags without the leading '#' symbol, e.g. ["CoffeeShop", "GrandOpening", "LatteArt"]. Do not include any other text or markdown code fences outside the JSON array.`;
+    const systemInstruction = `You are a social media hashtag optimization specialist. Return only a valid JSON array of ${count} relevant hashtags without the leading '#' symbol, e.g. ["Tech", "Coding", "Developer"]. Base the hashtags directly on the user's prompt. Do not invent unrelated topics or products. If the prompt is generic, return versatile social media hashtags. Do not include any text or markdown formatting outside the JSON array.`;
 
     const userMessageContent = `Generate ${count} relevant hashtags for this post:
-Prompt: "${userPrompt}"
-Platform: ${platform || 'social media'}`;
+User Prompt: "${userPrompt}"
+Platform: ${platform || 'General Social Media'}`;
 
-    const response = await client.models.generateContent({
-      model,
+    const { response, modelUsed } = await callGeminiWithResilience(client, configuredModel, {
       contents: userMessageContent,
       config: {
         systemInstruction,
@@ -349,7 +402,7 @@ Platform: ${platform || 'social media'}`;
     return {
       hashtags: cleaned,
       isMock: false,
-      model,
+      model: modelUsed,
     };
   } catch (error) {
     handleGeminiError(error, 'Hashtag Generation');
@@ -371,6 +424,11 @@ export const generateUnifiedContent = async ({
   useFallback = false,
 }) => {
   const userPrompt = (prompt || topic || '').trim();
+  if (!userPrompt) {
+    const err = new Error('A prompt or topic is required for AI generation.');
+    err.statusCode = 400;
+    throw err;
+  }
 
   if (type === 'caption') {
     const cap = await generateCaption({ prompt: userPrompt, topic: userPrompt, audience, tone, platform, keywords, useFallback });
@@ -395,20 +453,118 @@ export const generateUnifiedContent = async ({
     };
   }
 
-  // Generate both caption and hashtags in parallel
-  const [cap, hash] = await Promise.all([
-    generateCaption({ prompt: userPrompt, topic: userPrompt, audience, tone, platform, keywords, useFallback }),
-    generateHashtags({ prompt: userPrompt, topic: userPrompt, platform, count, useFallback }),
-  ]);
+  const client = getGeminiClient();
+  const configuredModel = getGeminiModel();
 
-  return {
-    caption: cap.caption,
-    hashtags: hash.hashtags,
-    isMock: cap.isMock || hash.isMock,
-    model: cap.model,
-    notice: cap.notice || hash.notice,
-    usage: cap.usage,
-  };
+  // If fallback is explicitly requested or client key missing
+  if (!client || useFallback) {
+    if (!client && !useFallback) {
+      const err = new Error('GEMINI_API_KEY is not configured in server/.env. Please configure your Google Gemini API key.');
+      err.statusCode = 503;
+      err.code = 'MISSING_API_KEY';
+      throw err;
+    }
+
+    return {
+      caption: generateFallbackCaption({ prompt: userPrompt, topic: userPrompt, audience, tone, platform, keywords }),
+      hashtags: generateFallbackHashtags({ prompt: userPrompt, topic: userPrompt, platform, count }),
+      isMock: true,
+      notice: !client
+        ? 'Generated using local template fallback mode. Add GEMINI_API_KEY in server/.env for live Gemini responses.'
+        : 'Generated using local template fallback mode (explicitly requested).',
+      model: 'local-heuristic-v1',
+    };
+  }
+
+  // Unified single-call generation with structured JSON for maximum speed and prompt coherence
+  try {
+    const platformInstructions = {
+      instagram: 'Instagram: Engaging hook in the very first sentence, conversational storytelling, relevant emojis, clean line breaks for readability, and a clear call-to-action inviting users to comment/engage.',
+      linkedin: 'LinkedIn: Professional, insightful, high-value tone, clean paragraph spacing or bullet points if appropriate, business/career context, and an engaging professional discussion question.',
+      facebook: 'Facebook: Community-friendly, warm and approachable, clearly highlights key details/events, and ends with an inviting question or CTA.',
+      twitter: 'Twitter / X: Punchy, high-impact, concise (under 260 characters), with 1-2 relevant hashtags.',
+      x: 'X / Twitter: Punchy, high-impact, concise (under 260 characters), with 1-2 relevant hashtags.',
+    };
+
+    const platformKey = (platform || 'general').toLowerCase();
+    const platformRule = platformInstructions[platformKey] || 'General social media: Engaging hook, well-structured body, and relevant call-to-action.';
+
+    const systemInstruction = `You are a professional social media copywriter. Generate content based on the user's exact request. The user's prompt is the primary source of truth. Do not invent a different business, product, event, discount, audience, or offer unless the user requests it. Use the selected platform, tone, target audience, and keywords as additional guidance. Return a complete, relevant caption and suitable hashtags. If the user's request is ambiguous, produce a reasonable general response without inventing specific facts.
+Return a valid JSON object with exactly two keys:
+1. "caption": A string containing the complete, ready-to-publish social media caption. Do not include markdown code fences, "Option" listings, or conversational preambles inside the caption.
+2. "hashtags": An array of ${count} relevant hashtag strings without the leading '#' symbol.`;
+
+    const promptParts = [
+      `User Prompt: "${userPrompt}"`,
+      `Target Platform: ${platform || 'General Social Media'}`,
+      `Platform Style Guidelines: ${platformRule}`,
+    ];
+    if (tone) {
+      promptParts.push(`Requested Tone: ${tone}`);
+    }
+    if (audience && audience.trim()) {
+      promptParts.push(`Target Audience: ${audience.trim()}`);
+    }
+    if (keywords && keywords.length > 0) {
+      promptParts.push(`Key Points / Keywords to include: ${keywords.join(', ')}`);
+    }
+    const userMessageContent = promptParts.join('\n');
+
+    const { response, modelUsed } = await callGeminiWithResilience(client, configuredModel, {
+      contents: userMessageContent,
+      config: {
+        systemInstruction,
+        temperature: 0.7,
+        maxOutputTokens: 950,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const raw = response.text ? response.text.trim() : '{}';
+    let parsedCaption = '';
+    let parsedHashtags = [];
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed.caption === 'string') {
+        parsedCaption = parsed.caption.trim();
+      }
+      if (Array.isArray(parsed.hashtags)) {
+        parsedHashtags = parsed.hashtags;
+      }
+    } catch {
+      // If direct parse fails, extract caption or use fallback parser
+      const match = raw.match(/"caption"\s*:\s*"([\s\S]*?)"\s*,\s*"hashtags"/);
+      parsedCaption = match ? match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') : raw;
+    }
+
+    // Clean and sanitize hashtags
+    const cleanedHashtags = parsedHashtags
+      .map((h) => String(h).replace(/^#/, '').replace(/[^a-zA-Z0-9_]/g, '').trim())
+      .filter((h) => h.length > 1)
+      .slice(0, count);
+
+    // If for some reason hashtags were empty from JSON, generate quick fallback hashtags
+    const finalHashtags = cleanedHashtags.length > 0
+      ? cleanedHashtags
+      : generateFallbackHashtags({ prompt: userPrompt, topic: userPrompt, platform, count });
+
+    return {
+      caption: parsedCaption || userPrompt,
+      hashtags: finalHashtags,
+      isMock: false,
+      model: modelUsed,
+      usage: response.usageMetadata
+        ? {
+            prompt_tokens: response.usageMetadata.promptTokenCount,
+            completion_tokens: response.usageMetadata.candidatesTokenCount,
+            total_tokens: response.usageMetadata.totalTokenCount,
+          }
+        : undefined,
+    };
+  } catch (error) {
+    handleGeminiError(error, 'Unified Generation');
+  }
 };
 
 export default {

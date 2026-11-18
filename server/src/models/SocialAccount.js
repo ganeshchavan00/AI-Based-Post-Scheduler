@@ -83,5 +83,5 @@ const socialAccountSchema = new mongoose.Schema(
 // Compound index to ensure a user cannot link the duplicate account for the same provider twice
 socialAccountSchema.index({ userId: 1, provider: 1, providerAccountId: 1 }, { unique: true });
 
-const SocialAccount = mongoose.model('SocialAccount', socialAccountSchema);
+const SocialAccount = mongoose.model('SocialAccount', socialAccountSchema, 'socialaccounts');
 export default SocialAccount;

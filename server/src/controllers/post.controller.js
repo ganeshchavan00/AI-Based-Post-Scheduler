@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import mongoose from 'mongoose';
 import Post from '../models/Post.js';
 import SocialAccount from '../models/SocialAccount.js';
 import { processDuePosts } from '../services/scheduler.service.js';
@@ -83,11 +84,12 @@ export const getPosts = async (req, res, next) => {
     }
 
     // Execute queries in parallel
+    const userObjectId = new mongoose.Types.ObjectId(userId);
     const [posts, total, statusCounts] = await Promise.all([
       Post.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
       Post.countDocuments(query),
       Post.aggregate([
-        { $match: { userId } },
+        { $match: { userId: userObjectId } },
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ]),
     ]);
@@ -428,10 +430,11 @@ export const deletePost = async (req, res, next) => {
 export const getDashboardStats = async (req, res, next) => {
   try {
     const userId = req.user._id;
+    const userObjectId = new mongoose.Types.ObjectId(userId);
 
     const [statusCounts, recentPosts] = await Promise.all([
       Post.aggregate([
-        { $match: { userId } },
+        { $match: { userId: userObjectId } },
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ]),
       Post.find({ userId }).sort({ createdAt: -1 }).limit(5),

@@ -11,7 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '..', '..', '.env') });
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/ai_social_scheduler';
+const MONGO_URI = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/ai_social_scheduler';
 const BASE_URL = 'http://localhost:5000/api';
 
 async function runSchedulerTests() {

@@ -103,9 +103,8 @@ export default function App() {
 
       {/* Professional SaaS Footer */}
       <footer className="border-t border-slate-200 bg-white px-6 py-4 text-center text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div className="max-w-7xl mx-auto flex items-center justify-center">
           <span>&copy; {new Date().getFullYear()} Social Media Post Scheduler &bull; Social Media Automation Platform</span>
-          <span className="text-slate-400">Production SaaS Interface &bull; B.Tech Final Evaluation Ready</span>
         </div>
       </footer>
     </div>

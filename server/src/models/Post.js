@@ -91,5 +91,5 @@ const postSchema = new mongoose.Schema(
 postSchema.index({ userId: 1, createdAt: -1 });
 postSchema.index({ status: 1, scheduledAt: 1 });
 
-const Post = mongoose.model('Post', postSchema);
+const Post = mongoose.model('Post', postSchema, 'posts');
 export default Post;
